@@ -1,0 +1,4 @@
+services:
+  sub2api-check:
+    build: .
+    image: sub2api-check:local

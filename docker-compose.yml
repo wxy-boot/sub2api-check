@@ -1,0 +1,16 @@
+services:
+  sub2api-check:
+    # 直接用 GitHub Actions 构建好的镜像（公开包，无需 docker login）。
+    # 想固定版本可改成 ghcr.io/wxy-boot/sub2api-check:sha-<提交号>。
+    # 想本地构建则改用：docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+    image: ghcr.io/wxy-boot/sub2api-check:latest
+    container_name: sub2api-check
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8789:8789"
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
