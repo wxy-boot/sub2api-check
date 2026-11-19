@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { extractArtifact } from "./artifact.js";
-import { DEFAULT_SYSTEM_PROMPT } from "./config.js";
 import { describeCron, nextCronTime } from "./cron.js";
 import { httpError } from "./http.js";
 import { logError, logInfo, logWarn } from "./log.js";
@@ -25,19 +24,9 @@ export function createRunner({ config, store, upstream }) {
     };
   }
 
-  function getSystemPrompt() {
-    // 后台保存过就用保存值（哪怕是空字符串＝不加前置提示），否则回退到内置默认值。
-    if (store.readBoolSetting("system_prompt_custom", false)) {
-      return store.getSetting("system_prompt");
-    }
-
-    return store.getSetting("system_prompt") || DEFAULT_SYSTEM_PROMPT;
-  }
-
-  /** 每个分组的实际提示词 = 统一前置要求 + 试题原文。 */
+  /** 发给上游的提示词就是题目原文，不再额外拼接。 */
   function buildPrompt(question) {
-    const preamble = getSystemPrompt().trim();
-    return preamble ? `${preamble}\n\n— 试题 —\n${question.prompt.trim()}` : question.prompt.trim();
+    return question.prompt.trim();
   }
 
   function getStatus() {
@@ -47,24 +36,44 @@ export function createRunner({ config, store, upstream }) {
     };
   }
 
-  /** 不真正执行，只检查当前配置是否可跑一轮。 */
-  function validateRun() {
+  /**
+   * 不真正执行，只检查当前配置是否可跑一轮。
+   * options.groupIds 传了就只检查/只跑这些分组。
+   */
+  function validateRun(options = {}) {
+    const groupIds = Array.isArray(options.groupIds)
+      ? options.groupIds.map((id) => String(id)).filter(Boolean)
+      : [];
     const questions = store.getQuestions().filter((question) => question.enabled);
-    const groups = store.getGroups().filter((group) => group.enabled);
-    const runnableGroups = groups.filter(
+    const enabledGroups = store.getGroups().filter((group) => group.enabled);
+    const scopedGroups =
+      groupIds.length > 0
+        ? enabledGroups.filter((group) => groupIds.includes(group.id))
+        : enabledGroups;
+    const runnableGroups = scopedGroups.filter(
       (group) => group.baseUrl.trim() && group.model.trim() && group.apiKey.trim()
     );
+    const onlyGroup = groupIds.length === 1;
 
     if (questions.length === 0) {
       return { ok: false, code: "no_questions", message: "没有启用的检测题目，请先在后台添加题目。" };
+    }
+
+    if (groupIds.length > 0 && scopedGroups.length === 0) {
+      return {
+        ok: false,
+        code: "group_not_found",
+        message: "选中的分组不存在或已停用，请先保存分组设置。"
+      };
     }
 
     if (runnableGroups.length === 0) {
       return {
         ok: false,
         code: "no_groups",
-        message:
-          groups.length === 0
+        message: onlyGroup
+          ? `分组「${scopedGroups[0]?.name || ""}」还缺少 API 地址、API Key 或模型名称，请先补全。`
+          : scopedGroups.length === 0
             ? "没有启用的检测分组，请先在后台添加分组。"
             : "启用的分组还缺少 API 地址、API Key 或模型名称，请先补全。"
       };
@@ -74,18 +83,18 @@ export function createRunner({ config, store, upstream }) {
       ok: true,
       questions,
       runnableGroups,
-      unconfigured: groups.filter((group) => !runnableGroups.includes(group)),
+      unconfigured: scopedGroups.filter((group) => !runnableGroups.includes(group)),
       totalCount: questions.length * runnableGroups.length
     };
   }
 
-  async function runRound(trigger = "cron") {
+  async function runRound(trigger = "cron", options = {}) {
     if (runningRound) {
       logWarn("round.skipped", { trigger, reason: "already_running", roundId: runningRound.id });
       return { ok: false, skipped: true, reason: "already_running", roundId: runningRound.id };
     }
 
-    const check = validateRun();
+    const check = validateRun(options);
 
     if (!check.ok) {
       throw httpError(400, check.code, check.message);
@@ -107,6 +116,7 @@ export function createRunner({ config, store, upstream }) {
       roundId: round.id,
       trigger,
       totalCount,
+      scope: runnableGroups.length === 1 ? "single_group" : "all_groups",
       groups: runnableGroups.map((group) => group.name),
       questions: questions.map((question) => question.title),
       unconfiguredGroups: unconfigured.map((group) => group.name)
@@ -338,8 +348,7 @@ export function createRunner({ config, store, upstream }) {
     validateRun,
     refreshSchedule: scheduleNext,
     getStatus,
-    buildPrompt,
-    getSystemPrompt
+    buildPrompt
   };
 }
 

@@ -21,13 +21,6 @@ export const DEFAULT_GROUPS = [
   { id: "group-3", name: "PRO3", model: "", reasoning: "", enabled: true }
 ];
 
-// 追加在试题前面的系统提示，保证各分组在同等条件下比赛，并约束输出形态。
-export const DEFAULT_SYSTEM_PROMPT = [
-  "你是一名前端工程师。请严格按要求完成任务。",
-  "只输出最终代码，不要输出解释、前言或 Markdown 代码围栏之外的文字。",
-  "如果任务要求 HTML，就输出一个完整可直接打开的单文件 HTML（内联 CSS 与 JS，不要引用外部资源）。"
-].join("\n");
-
 export const DEFAULT_CRON = "*/30 * * * *";
 
 export const config = {

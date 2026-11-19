@@ -481,20 +481,6 @@ button:disabled {
   margin-top: 14px;
 }
 
-.prompt-card {
-  display: grid;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-
-.prompt-card .actions {
-  margin-top: 0;
-}
-
 .edit-row {
   display: grid;
   gap: 10px;
@@ -556,6 +542,46 @@ button:disabled {
 .remove-row:hover {
   color: #fff;
   background: var(--red);
+}
+
+.row-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.move-row {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1;
+  background: var(--surface);
+}
+
+.move-row:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: rgba(47, 111, 237, 0.45);
+  background: var(--accent-soft);
+}
+
+.run-row {
+  padding: 5px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text-2);
+  font-size: 12px;
+  background: var(--surface);
+}
+
+.run-row:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: rgba(47, 111, 237, 0.45);
+  background: var(--accent-soft);
 }
 
 .key-cell {

@@ -29,9 +29,6 @@ const elements = {
   runNowButton: document.querySelector("#runNowButton"),
 
   questionRows: document.querySelector("#questionRows"),
-  systemPromptInput: document.querySelector("#systemPromptInput"),
-  savePromptButton: document.querySelector("#savePromptButton"),
-  resetPromptButton: document.querySelector("#resetPromptButton"),
   addQuestionButton: document.querySelector("#addQuestionButton"),
   reloadQuestionsButton: document.querySelector("#reloadQuestionsButton"),
   saveQuestionsButton: document.querySelector("#saveQuestionsButton"),
@@ -87,11 +84,6 @@ function boot() {
   });
   elements.reloadQuestionsButton.addEventListener("click", () => void loadConfig());
   elements.saveQuestionsButton.addEventListener("click", () => void saveQuestions());
-  elements.savePromptButton.addEventListener("click", () => void saveSystemPrompt());
-  elements.resetPromptButton.addEventListener("click", () => {
-    elements.systemPromptInput.value = state.config?.defaultSystemPrompt || "";
-    showMessage("已填入默认前置提示，记得点「保存前置提示」。", "success");
-  });
 
   elements.addGroupButton.addEventListener("click", () => {
     addGroupRow({
@@ -104,7 +96,8 @@ function boot() {
       model: "",
       reasoning: "",
       protocol: "/v1/chat/completions",
-      enabled: true
+      enabled: true,
+      saved: false
     });
   });
   elements.reloadGroupsButton.addEventListener("click", () => void loadConfig());
@@ -174,36 +167,11 @@ function renderAll(config) {
   elements.loginPanel.hidden = true;
   elements.adminTabs.hidden = false;
   renderSchedule(config);
-  renderSystemPrompt(config);
   renderQuestions(config.questions);
   renderGroups(config.groups);
   renderFilters(config);
   renderSystem(config);
   activateTab(state.tab);
-}
-
-function renderSystemPrompt(config) {
-  elements.systemPromptInput.value = config.systemPrompt || "";
-  elements.systemPromptInput.placeholder = config.defaultSystemPrompt || "";
-}
-
-async function saveSystemPrompt() {
-  elements.savePromptButton.disabled = true;
-
-  try {
-    const data = await adminFetch("/api/admin/prompt", {
-      method: "PUT",
-      body: { systemPrompt: elements.systemPromptInput.value }
-    });
-
-    state.config = data;
-    renderSystemPrompt(data);
-    showMessage("前置提示已保存，下一轮生效。", "success");
-  } catch (error) {
-    showMessage(error.message, "error");
-  } finally {
-    elements.savePromptButton.disabled = false;
-  }
 }
 
 function hidePanels() {
@@ -419,6 +387,8 @@ function renderGroups(groups) {
   for (const group of groups) {
     addGroupRow(group);
   }
+
+  updateGroupPositions();
 }
 
 function addGroupRow(group) {
@@ -430,13 +400,19 @@ function addGroupRow(group) {
   row.className = "edit-row";
   row.dataset.groupId = group.id || "";
   row.dataset.hasKey = group.hasApiKey ? "1" : "0";
+  row.dataset.saved = group.saved === false ? "0" : "1";
   row.innerHTML = `
     <div class="edit-row-head">
       <label>
         <input class="g-enabled" type="checkbox" ${group.enabled ? "checked" : ""} />
         <span>启用</span>
       </label>
-      <button class="remove-row" type="button" aria-label="删除分组">×</button>
+      <div class="row-actions">
+        <button class="move-row move-up" type="button" title="上移（保存后看板列顺序同步）" aria-label="上移">↑</button>
+        <button class="move-row move-down" type="button" title="下移（保存后看板列顺序同步）" aria-label="下移">↓</button>
+        <button class="run-row" type="button" title="只跑这一个分组">检测此分组</button>
+        <button class="remove-row" type="button" aria-label="删除分组">×</button>
+      </div>
     </div>
     <div class="row-fields cols-3">
       <label class="field">
@@ -482,10 +458,90 @@ function addGroupRow(group) {
     if (elements.groupRows.querySelectorAll(".edit-row").length === 0) {
       elements.groupRows.append(createEmpty("还没有测试分组，点「新增分组」开始。"));
     }
+
+    updateGroupPositions();
   });
+
+  row.querySelector(".run-row").addEventListener("click", () => {
+    void runSingleGroup(row);
+  });
+
+  row.querySelector(".move-up").addEventListener("click", () => moveGroupRow(row, -1));
+  row.querySelector(".move-down").addEventListener("click", () => moveGroupRow(row, 1));
 
   clearEmpty(elements.groupRows);
   elements.groupRows.append(row);
+  updateGroupPositions();
+}
+
+// 拖动顺序不改数据库，保存分组时按当前 DOM 顺序写入 sort_order。
+function moveGroupRow(row, delta) {
+  const rows = [...elements.groupRows.querySelectorAll(".edit-row")];
+  const index = rows.indexOf(row);
+  const targetIndex = index + delta;
+
+  if (index < 0 || targetIndex < 0 || targetIndex >= rows.length) {
+    return;
+  }
+
+  const neighbor = rows[targetIndex];
+
+  if (delta < 0) {
+    elements.groupRows.insertBefore(row, neighbor);
+  } else {
+    elements.groupRows.insertBefore(neighbor, row);
+  }
+
+  updateGroupPositions();
+  showMessage("已调整分组顺序，点「保存分组」后看板列顺序同步。", "success");
+}
+
+function updateGroupPositions() {
+  const rows = [...elements.groupRows.querySelectorAll(".edit-row")];
+
+  rows.forEach((row, index) => {
+    const up = row.querySelector(".move-up");
+    const down = row.querySelector(".move-down");
+
+    if (up) {
+      up.disabled = index === 0;
+    }
+
+    if (down) {
+      down.disabled = index === rows.length - 1;
+    }
+  });
+}
+
+// 只检测单个分组：用于新接入的渠道先验证，避免整轮把其他分组也跑一遍。
+async function runSingleGroup(row) {
+  const button = row.querySelector(".run-row");
+  const groupId = row.dataset.groupId || "";
+  const name = row.querySelector(".g-name").value.trim() || "该分组";
+
+  if (row.dataset.saved !== "1") {
+    showMessage("新分组还没保存，先点「保存分组」再单独检测。", "error");
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "启动中…";
+
+  try {
+    const data = await adminFetch("/api/admin/run", {
+      method: "POST",
+      body: { groupId }
+    });
+
+    showMessage(`已开始单独检测「${data.groupName || name}」，共 ${data.totalCount} 个任务。`, "success");
+    state.config = data.config;
+    renderAll(data.config);
+    scheduleRefresh();
+  } catch (error) {
+    showMessage(error.message, "error");
+    button.disabled = false;
+    button.textContent = "检测此分组";
+  }
 }
 
 function readGroups() {

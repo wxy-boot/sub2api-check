@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import path from "node:path";
-import { DEFAULT_GROUPS, DEFAULT_QUESTION, DEFAULT_SYSTEM_PROMPT, config, rootDir } from "./config.js";
+import { DEFAULT_GROUPS, DEFAULT_QUESTION, config, rootDir } from "./config.js";
 import { describeCron, nextCronTime, validateCron } from "./cron.js";
 import {
   httpError,
@@ -357,7 +357,6 @@ function buildArtifactDetail(id) {
   return {
     ...publicArtifactSummary(row),
     prompt: row.prompt || "",
-    raw: row.raw || "",
     createdAtFull: formatFullTime(row.createdAt, config.timezone)
   };
 }
@@ -393,20 +392,6 @@ async function handleAdmin(req, res, routePath, method, url) {
     runner.refreshSchedule();
 
     logInfo("admin.schedule.updated", { cron: expression, enabled });
-    sendJson(res, 200, buildAdminPayload());
-    return;
-  }
-
-  if (method === "PUT" && routePath === "/api/admin/prompt") {
-    const body = await readJsonBody(req);
-    const systemPrompt =
-      body?.systemPrompt === undefined
-        ? store.getSetting("system_prompt")
-        : String(body.systemPrompt).slice(0, 8000).trim();
-
-    store.setSetting("system_prompt", systemPrompt);
-    store.setSetting("system_prompt_custom", "1");
-    logInfo("admin.prompt.updated", { length: systemPrompt.length });
     sendJson(res, 200, buildAdminPayload());
     return;
   }
@@ -462,7 +447,11 @@ async function handleAdmin(req, res, routePath, method, url) {
   }
 
   if (method === "POST" && routePath === "/api/admin/run") {
-    const check = runner.validateRun();
+    const body = await readJsonBody(req);
+    const groupId = String(body?.groupId || "").trim();
+    // 传 groupId 就只跑这一个分组，不传就是全量一轮。
+    const options = groupId ? { groupIds: [groupId] } : {};
+    const check = runner.validateRun(options);
 
     if (!check.ok) {
       throw httpError(400, check.code, check.message);
@@ -473,13 +462,23 @@ async function handleAdmin(req, res, routePath, method, url) {
     }
 
     // 一轮可能要跑几分钟，这里立刻返回，后台再用配置里的 running 字段轮询进度。
-    void runner.runRound("manual").catch((error) => {
+    void runner.runRound("manual", options).catch((error) => {
       logError("admin.run.failed", { code: error?.code || "", message: error?.message || "" });
+    });
+
+    const targetGroup = groupId ? check.runnableGroups[0] || null : null;
+
+    logInfo("admin.run.started", {
+      scope: groupId ? "single_group" : "all_groups",
+      group: targetGroup?.name || "",
+      totalCount: check.totalCount
     });
 
     sendJson(res, 200, {
       ok: true,
       started: true,
+      groupId: targetGroup?.id || "",
+      groupName: targetGroup?.name || "",
       totalCount: check.totalCount,
       config: buildAdminPayload()
     });
@@ -573,8 +572,6 @@ function buildAdminPayload() {
       previewNextRunAt: previewNextRun(schedule.expression)
     },
     questions,
-    systemPrompt: runner.getSystemPrompt(),
-    defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
     groups: groups.map((group) => ({
       ...group,
       apiKey: "",

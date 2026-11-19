@@ -312,8 +312,9 @@ describe("模型智商检测：接口与执行链路", () => {
     const detail = await (await fetch(`${baseUrl}/api/artifact/${artifactId}`)).json();
 
     assert.equal(detail.artifact.prompt.includes("SVG"), true);
-    assert.equal(detail.artifact.raw.includes("chatcmpl-stub"), true);
     assert.equal(detail.artifact.charCount > 0, true);
+    // 公开详情不再下发上游原始响应
+    assert.equal(detail.artifact.raw, undefined);
   });
 
   test("作品记录分页与筛选", async () => {
@@ -459,7 +460,172 @@ describe("模型智商检测：接口与执行链路", () => {
     assert.equal(response.status, 400);
     assert.equal(payload.error, "invalid_cron");
   });
+
+  test("可以只检测单个分组，不影响其他分组的历史", async () => {
+    const config = await (
+      await fetch(`${baseUrl}/api/admin/config`, { headers: adminHeaders() })
+    ).json();
+    const enabledQuestionCount = config.questions.filter((question) => question.enabled).length;
+    const groups = config.groups.map((group) =>
+      group.id === "group-2"
+        ? {
+            id: group.id,
+            name: group.name,
+            baseUrl: `http://127.0.0.1:${stub.port}`,
+            apiKey: "sk-second-group-key",
+            model: "gpt-6.1-terra",
+            reasoning: "high",
+            protocol: "/v1/chat/completions",
+            enabled: true
+          }
+        : {
+            id: group.id,
+            name: group.name,
+            baseUrl: group.baseUrl,
+            model: group.model,
+            reasoning: group.reasoning,
+            protocol: group.protocol,
+            enabled: group.enabled
+          }
+    );
+
+    await fetch(`${baseUrl}/api/admin/groups`, {
+      method: "PUT",
+      headers: adminHeaders(),
+      body: JSON.stringify({ groups })
+    });
+
+    const beforeCounts = await countByGroup(baseUrl);
+
+    const started = await (
+      await fetch(`${baseUrl}/api/admin/run`, {
+        method: "POST",
+        headers: adminHeaders(),
+        body: JSON.stringify({ groupId: "group-2" })
+      })
+    ).json();
+
+    assert.equal(started.started, true);
+    assert.equal(started.groupId, "group-2");
+    assert.equal(started.groupName, "PRO2");
+    assert.equal(started.totalCount, enabledQuestionCount);
+
+    const afterRound = await waitForRound(baseUrl);
+
+    assert.equal(afterRound.schedule.running, false);
+
+    const afterCounts = await countByGroup(baseUrl);
+
+    // 只有 PRO2 多出了作品，PRO1 的历史保持不变
+    assert.equal(afterCounts["group-2"] - beforeCounts["group-2"], enabledQuestionCount);
+    assert.equal(afterCounts["group-1"], beforeCounts["group-1"]);
+
+    const recentCall = stub.state.calls.at(-1);
+    const body = JSON.parse(recentCall.body);
+
+    assert.equal(body.model, "gpt-6.1-terra");
+    assert.equal(body.reasoning_effort, "high");
+    assert.equal(recentCall.authorization, "Bearer sk-second-group-key");
+  });
+
+  test("单个分组未配置时给出明确报错", async () => {
+    const response = await fetch(`${baseUrl}/api/admin/run`, {
+      method: "POST",
+      headers: adminHeaders(),
+      body: JSON.stringify({ groupId: "group-3" })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.error, "no_groups");
+    assert.equal(payload.message.includes("PRO3"), true);
+  });
+
+  test("不存在的分组直接拒绝", async () => {
+    const response = await fetch(`${baseUrl}/api/admin/run`, {
+      method: "POST",
+      headers: adminHeaders(),
+      body: JSON.stringify({ groupId: "group-not-exist" })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.error, "group_not_found");
+  });
+
+  test("分组排序决定看板列顺序", async () => {
+    const config = await (
+      await fetch(`${baseUrl}/api/admin/config`, { headers: adminHeaders() })
+    ).json();
+    const originalOrder = config.groups.map((group) => group.id);
+    const reversedOrder = [...originalOrder].reverse();
+    const byId = new Map(config.groups.map((group) => [group.id, group]));
+
+    async function saveOrder(order) {
+      const groups = order.map((id) => {
+        const group = byId.get(id);
+
+        return {
+          id: group.id,
+          name: group.name,
+          baseUrl: group.baseUrl,
+          model: group.model,
+          reasoning: group.reasoning,
+          protocol: group.protocol,
+          enabled: group.enabled
+        };
+      });
+
+      return fetch(`${baseUrl}/api/admin/groups`, {
+        method: "PUT",
+        headers: adminHeaders(),
+        body: JSON.stringify({ groups })
+      });
+    }
+
+    const response = await saveOrder(reversedOrder);
+
+    assert.equal(response.status, 200);
+
+    const board = await (await fetch(`${baseUrl}/api/board`)).json();
+
+    assert.deepEqual(
+      board.columns.map((column) => column.group.id),
+      reversedOrder
+    );
+    assert.deepEqual(
+      board.groups.map((group) => group.id),
+      reversedOrder
+    );
+
+    // 恢复原顺序，保持其他用例的初始前提
+    await saveOrder(originalOrder);
+
+    const restored = await (await fetch(`${baseUrl}/api/board`)).json();
+
+    assert.deepEqual(
+      restored.columns.map((column) => column.group.id),
+      originalOrder
+    );
+  });
 });
+
+async function countByGroup(baseUrl, pageSize = 100) {
+  const records = await (
+    await fetch(`${baseUrl}/api/admin/records?pageSize=${pageSize}`, { headers: adminHeaders() })
+  ).json();
+  const counts = {};
+
+  for (const record of records.records) {
+    counts[record.groupId] = (counts[record.groupId] || 0) + 1;
+  }
+
+  for (const groupId of ["group-1", "group-2", "group-3"]) {
+    counts[groupId] = counts[groupId] || 0;
+  }
+
+  return counts;
+}
 
 async function waitForRound(baseUrl, timeoutMs = 25_000) {
   const deadline = Date.now() + timeoutMs;

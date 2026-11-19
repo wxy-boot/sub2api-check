@@ -4,7 +4,7 @@
 
 - 零 npm 依赖，单进程 Node.js 服务，数据存 SQLite（`node:sqlite`）
 - 定时任务用标准 5 段 Cron（按服务端时区解释），也可手动「立即检测一轮」
-- 后台可视化维护：Cron、检测题目（可多道）、测试分组（URL / API Key / 模型 / 协议）、统一前置提示
+- 后台可视化维护：Cron、检测题目（可多道）、测试分组（URL / API Key / 模型 / 协议），支持只跑单个分组
 - 作品记录：看板按分组分列展示 + 分页；后台可搜索、筛选、分页、删除
 - 作品用沙箱 iframe 实时渲染，服务端只存 HTML 文本，不需要无头浏览器
 - 分组 API Key 只保存在服务端，接口只回显掩码
@@ -34,9 +34,11 @@
 - **固定试题对比**：同一道题在不同分组上跑，生成结果并排展示，直接看谁画得好。
 - **Cron 定时**：`*/30 * * * *` 每 30 分钟一轮，支持每天固定时刻、工作日、每月某日等写法。
 - **多题目 × 多分组**：每轮把所有启用题目 × 所有启用分组各跑一次，互不干扰。
-- **作品存档**：保存完整 HTML、实际提示词、上游原始响应、耗时、成功/失败原因。
+- **作品存档**：保存完整 HTML、实际提示词、耗时、成功/失败原因；上游原始响应只留在服务端供排查，公开接口不下发。
 - **状态可见**：看板每个分组显示本轮状态（已更新 / 检测中 / 无新作品 / 本轮失败），没有新作品时保留上次作品。
 - **分页**：看板按分组分列分页，后台作品记录支持按题目 / 分组 / 状态 / 关键词筛选 + 分页。
+- **单组检测**：后台每个分组右侧有「检测此分组」，只跑这一个分组（新接入渠道验证时不必整轮全跑）。
+- **分组排序**：后台用 `↑` `↓` 调整分组顺序，保存后看板列顺序、分组下拉都同步变化。
 - **安全隔离**：作品以 `sandbox="allow-scripts"` iframe 加载，并带 `Content-Security-Policy: sandbox allow-scripts`，作品无法读取本服务数据或 Cookie。
 - **系统信息**：数据库路径、时区、超时、并发、作品总量、最近轮次明细。
 
@@ -56,6 +58,7 @@ npm run start:env
 cp .env.example .env && mkdir -p data
 docker compose pull && docker compose up -d     # 用 GHCR 远程镜像
 # 或本地构建：docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# 更新：git pull && docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 打开：
@@ -74,7 +77,7 @@ npm run demo        # 看板 http://127.0.0.1:8799/ ，密码 demo-password
 
 ## 配置
 
-所有配置通过环境变量提供，`.env.example` 有完整注释；Cron、题目、分组、前置提示首次启动写入 SQLite 后，以管理后台为准。
+所有配置通过环境变量提供，`.env.example` 有完整注释；Cron、题目、分组首次启动写入 SQLite 后，以管理后台为准。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -98,7 +101,7 @@ npm run demo        # 看板 http://127.0.0.1:8799/ ，密码 demo-password
 1. 读取所有**启用**的题目和分组；缺 URL / API Key / 模型的分组自动跳过，并在轮次备注里说明。
 2. 写入一条 `rounds` 记录（`trigger=cron|manual`，状态 `running`）。
 3. 对每个「分组 × 题目」组合并发调用上游（并发数 `CHECK_CONCURRENCY`）：
-   - 实际提示词 = 统一前置提示 + `— 试题 —` + 题目原文
+   - 实际提示词 = 题目原文（不做任何拼接，看板上看到的就是发给上游的内容）
    - 请求：`POST {URL}{协议}`，头 `Authorization: Bearer {API Key}`，体 `{model, messages:[{role:"user",content}], stream:false}`，`reasoning_effort` 仅在分组填了档位时附带
 4. 从响应里取 `choices[0].message.content`，去掉 Markdown 围栏和开场白，补成完整 HTML（或按纯文本存档）。
 5. 写入一条 `artifacts` 记录（状态、耗时、提示词、HTML、原始响应、错误信息）。
@@ -147,15 +150,15 @@ npm run demo        # 看板 http://127.0.0.1:8799/ ，密码 demo-password
 | --- | --- | --- | --- |
 | GET | `/healthz` | 无 | 健康检查 |
 | GET | `/api/board?questionId=&groupId=&page=&pageSize=` | 无 | 看板数据（分组、题目、轮次状态、分列作品、分页信息） |
-| GET | `/api/artifact/{id}` | 无 | 作品详情（实际提示词、原始响应、耗时） |
+| GET | `/api/artifact/{id}` | 无 | 作品详情（实际提示词、耗时） |
 | GET | `/api/artifact/{id}/html` | 无 | 作品正文（`text/html` 或 `text/plain`，带 CSP sandbox） |
 | GET | `/api/admin/session` | 管理密码 | 校验密码 |
 | GET | `/api/admin/config` | 管理密码 | 全部配置 + 统计 + 最近轮次 + 系统信息 |
 | PUT | `/api/admin/schedule` | 管理密码 | 保存 `{cron, enabled}`，立即重排下一次执行 |
 | PUT | `/api/admin/questions` | 管理密码 | 整组替换题目 `{questions:[…]}` |
 | PUT | `/api/admin/groups` | 管理密码 | 整组替换分组 `{groups:[…]}`（`apiKey` 省略 = 保持不变） |
-| PUT | `/api/admin/prompt` | 管理密码 | 保存统一前置提示 `{systemPrompt}` |
-| POST | `/api/admin/run` | 管理密码 | 立即检测一轮（异步启动，立即返回） |
+
+| POST | `/api/admin/run` | 管理密码 | 立即检测一轮；带 `{groupId}` 时只跑该分组（异步启动，立即返回） |
 | GET | `/api/admin/records?page=&pageSize=&q=&groupId=&questionId=&status=` | 管理密码 | 作品记录分页查询 |
 | GET | `/api/admin/artifacts/{id}` | 管理密码 | 作品完整详情（含原始响应） |
 | DELETE | `/api/admin/artifacts/{id}` | 管理密码 | 删除作品 |
@@ -224,7 +227,7 @@ src/
   log.js       单行 JSON 日志
 public/
   app.js       看板：分列作品、缩放预览、分页、弹窗
-  admin.js     后台：定时/题目/分组/前置提示/记录
+  admin.js     后台：定时/题目/分组（含单组检测）/记录
   styles.css   看板样式
   admin.css    后台样式
 scripts/
@@ -267,3 +270,4 @@ docker compose start sub2api-check
 **作品里的动画不动**
 
 作品是模型生成的 HTML，动画由它自己实现；如果它只画了静态 SVG，就不会动。点开预览可以确认原始效果。
+

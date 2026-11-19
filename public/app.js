@@ -521,22 +521,17 @@ async function openPreview(artifact) {
   }
 
   const promptBlock = document.createElement("details");
-  const rawBlock = document.createElement("details");
 
   promptBlock.className = "preview-block";
-  rawBlock.className = "preview-block";
   promptBlock.innerHTML = "<summary>本次实际提示词</summary><pre>加载中…</pre>";
-  rawBlock.innerHTML = "<summary>上游原始响应</summary><pre>加载中…</pre>";
-  elements.previewBody.append(promptBlock, rawBlock);
+  elements.previewBody.append(promptBlock);
 
   try {
     const detail = await loadArtifactDetail(artifact.id);
 
     promptBlock.querySelector("pre").textContent = detail.prompt || "（没有记录提示词）";
-    rawBlock.querySelector("pre").textContent = detail.raw || "（没有记录原始响应）";
   } catch (error) {
     promptBlock.querySelector("pre").textContent = error.message;
-    rawBlock.querySelector("pre").textContent = error.message;
   }
 }
 

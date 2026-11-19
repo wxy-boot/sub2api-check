@@ -78,7 +78,6 @@ export function renderIndex(config) {
 
       <footer class="page-foot">
         <span id="footNote">数据来自各分组真实调用，作品由模型实时生成。</span>
-        <a href="${base}/admin/">进入后台</a>
       </footer>
     </main>
 
@@ -198,18 +197,6 @@ export function renderAdmin(config) {
         </div>
         <p class="hint">每轮会把所有启用题目 × 所有启用分组各跑一次，题目越多样品越多。</p>
 
-        <div class="prompt-card">
-          <label class="field" for="systemPromptInput">
-            <span>统一前置提示（会拼在每道题的提示词前面）</span>
-            <textarea id="systemPromptInput" rows="4" maxlength="8000" placeholder="例如：只输出最终代码，不要解释。"></textarea>
-          </label>
-          <p class="hint">看板上「本次实际提示词」展示的就是这里 + 题目原文拼接后的完整内容。</p>
-          <div class="actions">
-            <button class="secondary" id="resetPromptButton" type="button">恢复默认</button>
-            <button class="secondary" id="savePromptButton" type="button">保存前置提示</button>
-          </div>
-        </div>
-
         <div class="question-rows" id="questionRows"></div>
         <div class="actions">
           <button class="primary" id="saveQuestionsButton" type="button">保存题目</button>
@@ -229,7 +216,8 @@ export function renderAdmin(config) {
         </div>
         <p class="hint">
           协议固定按 OpenAI Chat Completions 调用：<code>{URL}{协议}</code>，请求头带 <code>Authorization: Bearer {API Key}</code>。
-          URL 填 <code>https://host</code> 或 <code>https://host/v1</code> 都可以。
+          URL 填 <code>https://host</code> 或 <code>https://host/v1</code> 都可以。每组右侧的「检测此分组」只跑该分组；
+          用 <code>↑</code> <code>↓</code> 调整顺序，保存后看板的列顺序会跟着变。
         </p>
         <div class="group-rows" id="groupRows"></div>
         <div class="actions">

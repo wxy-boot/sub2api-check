@@ -119,21 +119,22 @@ async function main() {
     }).catch(() => {});
     await sleep(options.settleMs || 2500);
 
-    if (options.evaluate) {
-      await client.send("Runtime.evaluate", { expression: options.evaluate });
-      await sleep(options.afterEvaluateMs || 1200);
-    }
-
     await client.send("Runtime.evaluate", {
       expression: `window.scrollTo(0, ${options.scrollY || 0});`
     });
-    await sleep(400);
+    // 缩略图是 loading="lazy" 的 iframe，滚动后要留时间等它们加载完再截图。
+    await sleep(options.scrollY ? 1600 : 400);
 
     if (options.clickSelector) {
       await client.send("Runtime.evaluate", {
         expression: `document.querySelector(${JSON.stringify(options.clickSelector)})?.click();`
       });
       await sleep(900);
+    }
+
+    if (options.evaluate) {
+      await client.send("Runtime.evaluate", { expression: options.evaluate });
+      await sleep(options.afterEvaluateMs || 1200);
     }
 
     const result = await client.send("Page.captureScreenshot", {
@@ -172,6 +173,15 @@ async function main() {
     height: 1400,
     settleMs: 2500,
     clickSelector: '[data-tab="groups"]'
+  });
+  // 演示「上移」后的行顺序（未保存，只验证交互）
+  await shoot("admin-groups-sorted", `${BASE}/admin/`, {
+    width: 1456,
+    height: 780,
+    settleMs: 2500,
+    clickSelector: '[data-tab="groups"]',
+    evaluate: `document.querySelectorAll('#groupRows .edit-row')[2]?.querySelector('.move-up')?.click();`,
+    afterEvaluateMs: 900
   });
   await shoot("admin-records", `${BASE}/admin/`, {
     width: 1456,
