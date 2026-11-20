@@ -36,7 +36,7 @@
 - **多题目 × 多分组**：每轮把所有启用题目 × 所有启用分组各跑一次，互不干扰。
 - **作品存档**：保存完整 HTML、实际提示词、耗时、成功/失败原因；上游原始响应只留在服务端供排查，公开接口不下发。
 - **状态可见**：看板每个分组显示本轮状态（已更新 / 检测中 / 无新作品 / 本轮失败），没有新作品时保留上次作品。
-- **分页**：看板按分组分列分页，后台作品记录支持按题目 / 分组 / 状态 / 关键词筛选 + 分页。
+- **分页**：看板按分组分列分页，默认每页 2 条、可选 1 / 2 / 3；后台作品记录支持按题目 / 分组 / 状态 / 关键词筛选 + 分页。
 - **单组检测**：后台每个分组右侧有「检测此分组」，只跑这一个分组（新接入渠道验证时不必整轮全跑）。
 - **分组排序**：后台用 `↑` `↓` 调整分组顺序，保存后看板列顺序、分组下拉都同步变化。
 - **安全隔离**：作品以 `sandbox="allow-scripts"` iframe 加载，并带 `Content-Security-Policy: sandbox allow-scripts`，作品无法读取本服务数据或 Cookie。
@@ -89,7 +89,7 @@ npm run demo        # 看板 http://127.0.0.1:8799/ ，密码 demo-password
 | `CHECK_TITLE` / `CHECK_SUBTITLE` | `模型智商检测` / … | 看板标题与副标题 |
 | `CHECK_CRON` | `*/30 * * * *` | 首次启动写入的 Cron |
 | `CHECK_CRON_ENABLED` | `true` | 首次启动是否启用定时 |
-| `CHECK_REQUEST_TIMEOUT_SECONDS` | `180` | 单次模型调用超时 |
+| `CHECK_REQUEST_TIMEOUT_SECONDS` | `300` | 单次模型调用超时 |
 | `CHECK_MAX_OUTPUT_CHARS` | `200000` | 单份作品最大保存字符数（超出截断） |
 | `CHECK_SEND_REASONING_EFFORT` | `true` | 是否把分组的 low/medium/high 作为 `reasoning_effort` 发给上游 |
 | `CHECK_CONCURRENCY` | `3` | 一轮内的并发请求数（1-8） |
@@ -149,7 +149,7 @@ npm run demo        # 看板 http://127.0.0.1:8799/ ，密码 demo-password
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/healthz` | 无 | 健康检查 |
-| GET | `/api/board?questionId=&groupId=&page=&pageSize=` | 无 | 看板数据（分组、题目、轮次状态、分列作品、分页信息） |
+| GET | `/api/board?questionId=&groupId=&page=&pageSize=` | 无 | 看板数据（分组、题目、轮次状态、分列作品、分页信息；`pageSize` 只接受 1/2/3，默认 2） |
 | GET | `/api/artifact/{id}` | 无 | 作品详情（实际提示词、耗时） |
 | GET | `/api/artifact/{id}/html` | 无 | 作品正文（`text/html` 或 `text/plain`，带 CSP sandbox） |
 | GET | `/api/admin/session` | 管理密码 | 校验密码 |

@@ -195,10 +195,8 @@ function buildBoardPayload(url) {
   const enabledQuestions = questions.filter((question) => question.enabled);
   const questionId = resolveQuestionId(url.searchParams.get("questionId"), questions);
   const groupId = String(url.searchParams.get("groupId") || "");
-  const pageSize = clampInt(
+  const pageSize = resolveBoardPageSize(
     url.searchParams.get("pageSize"),
-    1,
-    10,
     store.readNumberSetting("board_page_size", config.defaultPageSize)
   );
   const requestedPage = clampInt(url.searchParams.get("page"), 1, 10_000, 1);
@@ -272,6 +270,7 @@ function buildBoardPayload(url) {
     paging: {
       page: requestedPage,
       pageSize,
+      pageSizes: config.boardPageSizes,
       total: maxTotal,
       totalPages: Math.max(1, Math.ceil(maxTotal / pageSize))
     },
@@ -894,4 +893,21 @@ function clampInt(raw, min, max, fallback) {
   }
 
   return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * 看板每列条数只接受 boardPageSizes 里的值（默认 2）。
+ * 请求值不合法时用已保存值，已保存值也不合法（例如老库里的 5）时回落默认值。
+ */
+function resolveBoardPageSize(raw, stored) {
+  const allowed = config.boardPageSizes;
+  const requested = Number.parseInt(String(raw ?? ""), 10);
+
+  if (allowed.includes(requested)) {
+    return requested;
+  }
+
+  const saved = Number(stored);
+
+  return allowed.includes(saved) ? saved : config.defaultPageSize;
 }

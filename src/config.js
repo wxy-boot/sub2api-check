@@ -39,12 +39,14 @@ export const config = {
     "用同一道固定试题，横向对比各分组模型的真实生成表现。",
   defaultCron: process.env.CHECK_CRON || DEFAULT_CRON,
   defaultCronEnabled: readBoolEnv("CHECK_CRON_ENABLED", true),
-  requestTimeoutMs: Math.max(5, readIntEnv("CHECK_REQUEST_TIMEOUT_SECONDS", 180)) * 1000,
+  requestTimeoutMs: Math.max(5, readIntEnv("CHECK_REQUEST_TIMEOUT_SECONDS", 300)) * 1000,
   maxOutputChars: Math.max(1000, readIntEnv("CHECK_MAX_OUTPUT_CHARS", 200000)),
   sendReasoningEffort: readBoolEnv("CHECK_SEND_REASONING_EFFORT", true),
   disableScheduler: readBoolEnv("CHECK_DISABLE_SCHEDULER", false),
   concurrency: Math.max(1, Math.min(8, readIntEnv("CHECK_CONCURRENCY", 3))),
-  defaultPageSize: 5,
+  // 看板每列可选的作品条数，只放这三个值，避免列太高或太空。
+  boardPageSizes: [1, 2, 3],
+  defaultPageSize: 2,
   maxPageSize: 50
 };
 

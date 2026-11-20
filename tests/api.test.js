@@ -182,6 +182,40 @@ describe("模型智商检测：接口与执行链路", () => {
     assert.equal(payload.service, "sub2api-check");
   });
 
+  test("默认单次超时是 300 秒，且可被环境变量覆盖", async () => {
+    // 本测试主进程起服务时显式设成 20 秒，先确认覆盖生效
+    const config = await (
+      await fetch(`${baseUrl}/api/admin/config`, { headers: adminHeaders() })
+    ).json();
+
+    assert.equal(config.system.requestTimeoutSeconds, 20);
+
+    // 不设环境变量时，config 的默认值应是 300 秒
+    const output = await new Promise((resolve, reject) => {
+      const env = { ...process.env };
+
+      delete env.CHECK_REQUEST_TIMEOUT_SECONDS;
+      const probe = spawn(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          'const { config } = await import("./src/config.js"); console.log(config.requestTimeoutMs / 1000, config.defaultPageSize, JSON.stringify(config.boardPageSizes));'
+        ],
+        { cwd: repoRoot, env, stdio: ["ignore", "pipe", "ignore"] }
+      );
+      let text = "";
+
+      probe.stdout.on("data", (chunk) => {
+        text += chunk;
+      });
+      probe.on("error", reject);
+      probe.on("exit", () => resolve(text.trim()));
+    });
+
+    assert.equal(output, "300 2 [1,2,3]");
+  });
+
   test("看板初始状态：3 个占位分组 + 1 道固定试题", async () => {
     const response = await fetch(`${baseUrl}/api/board`);
     const payload = await response.json();
@@ -373,6 +407,32 @@ describe("模型智商检测：接口与执行链路", () => {
 
     assert.equal(board.paging.page, 2);
     assert.equal(board.columns.find((column) => column.group.configured).artifacts.length, 1);
+  });
+
+  test("看板分页：默认每页 2 条，只接受 1/2/3", async () => {
+    const board = await (await fetch(`${baseUrl}/api/board`)).json();
+
+    assert.equal(board.paging.pageSize, 2);
+    assert.deepEqual(board.paging.pageSizes, [1, 2, 3]);
+
+    // 默认 2 条时，列里最多返回 2 件作品
+    const configuredColumn = board.columns.find((column) => column.group.configured);
+
+    assert.equal(configuredColumn.artifacts.length, Math.min(2, configuredColumn.total));
+    assert.equal(configuredColumn.totalPages, Math.max(1, Math.ceil(configuredColumn.total / 2)));
+
+    for (const size of [1, 2, 3]) {
+      const sized = await (await fetch(`${baseUrl}/api/board?pageSize=${size}`)).json();
+
+      assert.equal(sized.paging.pageSize, size);
+    }
+
+    // 不在候选里的值一律回落默认 2
+    for (const bad of [5, 10, 0, -1, 999, "abc"]) {
+      const badBoard = await (await fetch(`${baseUrl}/api/board?pageSize=${bad}`)).json();
+
+      assert.equal(badBoard.paging.pageSize, 2);
+    }
   });
 
   test("删掉作品后看板同步", async () => {

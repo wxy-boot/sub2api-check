@@ -1,15 +1,21 @@
 const BASE = window.__CHECK_BASE_PATH__ === "/" ? "" : window.__CHECK_BASE_PATH__;
+const PAGE_SIZE_KEY = "checkBoardPageSize";
 
 const state = {
   board: null,
   questionId: "",
   groupId: "",
   page: 1,
-  // 0 表示沿用服务端的 board_page_size，用户手动改过之后才下传。
-  pageSize: 0,
+  // 0 表示沿用服务端默认值（2 条）；记住用户上次选过的条数。
+  pageSize: readSavedPageSize(),
   loading: false,
   pollTimer: null
 };
+
+function readSavedPageSize() {
+  const saved = Number.parseInt(window.localStorage.getItem(PAGE_SIZE_KEY) || "", 10);
+  return Number.isFinite(saved) && saved > 0 ? saved : 0;
+}
 
 const elements = {
   refreshButton: document.querySelector("#refreshButton"),
@@ -385,11 +391,15 @@ function renderBoardPager(paging) {
   }
 
   const sizeField = document.createElement("label");
+  const sizes = Array.isArray(paging.pageSizes) && paging.pageSizes.length > 0
+    ? paging.pageSizes
+    : [1, 2, 3];
+
   sizeField.className = "pager-size";
   sizeField.innerHTML = `
     <span>每页</span>
     <select id="boardPageSize">
-      ${[1, 3, 5, 10]
+      ${sizes
         .map(
           (size) =>
             `<option value="${size}" ${size === paging.pageSize ? "selected" : ""}>${size}</option>`
@@ -398,8 +408,9 @@ function renderBoardPager(paging) {
     </select>
   `;
   sizeField.querySelector("select").addEventListener("change", (event) => {
-    state.pageSize = Number(event.target.value) || 3;
+    state.pageSize = Number(event.target.value) || 2;
     state.page = 1;
+    window.localStorage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
     void load();
   });
 
